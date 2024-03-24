@@ -27,14 +27,20 @@ fn main() {
 
 fn handle_client(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
-    let bytes_read = stream
-        .read(&mut buffer)
-        .expect("Failed to read input command");
+    loop {
+        let bytes_read = stream
+            .read(&mut buffer)
+            .expect("Failed to read input command");
 
-    println!("received {} bytes", bytes_read);
-    println!("{:?}", String::from_utf8_lossy(&buffer[..bytes_read]));
+        println!("received {} bytes", bytes_read);
+        println!("{:?}", String::from_utf8_lossy(&buffer[..bytes_read]));
 
-    stream
-        .write_all(b"+PONG\r\n")
-        .expect("failed to write to stream");
+        if bytes_read == 0 {
+            return;
+        }
+
+        stream
+            .write_all(b"+PONG\r\n")
+            .expect("failed to write to stream");
+    }
 }
