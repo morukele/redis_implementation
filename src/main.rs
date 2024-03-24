@@ -1,8 +1,8 @@
 // Uncomment this block to pass the first stage
+use redis::ThreadPool;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    thread,
 };
 
 fn main() {
@@ -13,11 +13,15 @@ fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
+    // Creating a new thread pool
+    let pool = ThreadPool::new(4);
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                thread::spawn(|| {
+                // Using threads to allow for multiple client support
+                pool.execute(|| {
                     handle_client(stream);
                 });
             }
