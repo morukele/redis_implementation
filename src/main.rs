@@ -1,5 +1,5 @@
 // Uncomment this block to pass the first stage
-use redis::ThreadPool;
+use redis_starter_rust::ThreadPool;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
