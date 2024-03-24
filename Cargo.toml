@@ -13,7 +13,7 @@ edition = "2021"
 
 [lib]
 name = "redis"
-path = "src/lib.rs"
+path = "./src/lib.rs"
 
 # DON'T EDIT THIS!
 #
