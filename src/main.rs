@@ -1,5 +1,5 @@
 // Uncomment this block to pass the first stage
-use redis_starter_rust::ThreadPool;
+use redis_starter_rust::{RedisParser, ThreadPool};
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -39,15 +39,51 @@ fn handle_client(mut stream: TcpStream) {
             .read(&mut buffer)
             .expect("Failed to read input command");
 
-        println!("received {} bytes", bytes_read);
-        println!("{:?}", String::from_utf8_lossy(&buffer[..bytes_read]));
-
         if bytes_read == 0 {
             return;
         }
 
-        stream
-            .write_all(b"+PONG\r\n")
-            .expect("failed to write to stream");
+        // Parse and return inputs
+        let parser = RedisParser::new();
+        let output = parser.parse(&buffer, bytes_read);
+
+        // Process Commands
+        process_command(&output, &mut stream);
     }
+}
+
+fn process_command(commands: &[String], stream: &mut TcpStream) {
+    match commands[0].as_str() {
+        "echo" => handle_echo(stream, &commands[1..]),
+        "ping" => handle_ping(stream, &commands[1..]),
+        _ => {
+            println!("Error: Unknown command")
+        }
+    }
+}
+
+fn handle_ping(stream: &mut TcpStream, commands: &[String]) {
+    if !commands.is_empty() {
+        println!("ERR: ping has too many arguments");
+    } else {
+        write_response(b"+PONG\r\n", stream)
+    }
+}
+
+fn handle_echo(stream: &mut TcpStream, commands: &[String]) {
+    if commands.is_empty() {
+        println!("ERR: wrong number of arguments for echo")
+    } else {
+        write_response(
+            format!("${}\r\n{}\r\n", commands[0].len(), commands[0]).as_bytes(),
+            stream,
+        )
+    }
+}
+
+fn write_response(response: &[u8], mut stream: &TcpStream) {
+    println!("response to write: {:?}", response);
+    stream
+        .write_all(response)
+        .expect("failed to write to stream");
 }
