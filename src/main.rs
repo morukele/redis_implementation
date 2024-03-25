@@ -1,8 +1,10 @@
+use bytes::{BufMut, BytesMut};
 // Uncomment this block to pass the first stage
-use redis_starter_rust::{RedisParser, ThreadPool};
+use redis_starter_rust::{RedisParser, RedisValueRef, ThreadPool};
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
+    str,
 };
 
 fn main() {
@@ -44,45 +46,65 @@ fn handle_client(mut stream: TcpStream) {
         }
 
         // Parse and return inputs
-        let parser = RedisParser::new();
-        let output = parser.parse(&buffer, bytes_read);
+        let mut bytes = BytesMut::new();
+        bytes.put_slice(&buffer);
+        let mut parser = RedisParser::new();
+        let output = parser
+            .decode(&mut bytes)
+            .expect("failed to decode encryption")
+            .unwrap();
 
+        println!("output: {:?}", &output);
         // Process Commands
         process_command(&output, &mut stream);
     }
 }
 
-fn process_command(commands: &[String], stream: &mut TcpStream) {
-    match commands[0].as_str() {
-        "echo" => handle_echo(stream, &commands[1..]),
-        "ping" => handle_ping(stream, &commands[1..]),
-        _ => {
-            println!("Error: Unknown command")
+fn process_command(commands: &RedisValueRef, stream: &mut TcpStream) {
+    match commands {
+        RedisValueRef::Array(arr) => {
+            let start_cmd = &arr[0];
+            match start_cmd {
+                RedisValueRef::String(cmd) => {
+                    match str::from_utf8(cmd)
+                        .expect("unable to convert byte to string")
+                        .to_lowercase()
+                        .as_str()
+                    {
+                        "ping" => handle_ping(stream),
+                        "echo" => handle_echo(stream, arr),
+                        _ => println!("Unknown command"),
+                    }
+                }
+                _ => todo!(),
+            }
+        }
+        _ => todo!(),
+    }
+}
+
+fn handle_ping(stream: &mut TcpStream) {
+    write_response(b"+PONG\r\n", stream)
+}
+
+fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
+    if commands.is_empty() {
+        println!("ERR: wrong number of arguments for echo")
+    } else {
+        match &commands[1] {
+            RedisValueRef::String(s) => {
+                let data = str::from_utf8(s).expect("failed to decode buffer");
+                write_response(
+                    format!("${}\r\n{}\r\n", data.len(), data).as_bytes(),
+                    stream,
+                );
+            }
+            _ => todo!(),
         }
     }
 }
 
-fn handle_ping(stream: &mut TcpStream, commands: &[String]) {
-    if !commands.is_empty() {
-        println!("ERR: ping has too many arguments");
-    } else {
-        write_response(b"+PONG\r\n", stream)
-    }
-}
-
-fn handle_echo(stream: &mut TcpStream, commands: &[String]) {
-    if commands.is_empty() {
-        println!("ERR: wrong number of arguments for echo")
-    } else {
-        write_response(
-            format!("${}\r\n{}\r\n", commands[0].len(), commands[0]).as_bytes(),
-            stream,
-        )
-    }
-}
-
 fn write_response(response: &[u8], mut stream: &TcpStream) {
-    println!("response to write: {:?}", response);
     stream
         .write_all(response)
         .expect("failed to write to stream");
