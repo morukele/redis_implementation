@@ -137,10 +137,10 @@ fn handle_ping(stream: &mut TcpStream) {
 }
 
 fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
-    if commands.is_empty() {
+    if commands.is_empty() || commands.len() > 1 {
         println!("ERR: wrong number of arguments for echo")
     } else {
-        match &commands[1] {
+        match &commands[0] {
             RedisValueRef::String(s) => {
                 let data = str::from_utf8(s).expect("failed to decode buffer");
                 let response = format!("${}\r\n{}\r\n", data.len(), data);
