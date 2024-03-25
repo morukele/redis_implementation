@@ -1,6 +1,6 @@
 use bytes::{Bytes, BytesMut};
 use memchr::memchr;
-use std::{collections::btree_map::Values, str};
+use std::str;
 
 pub type Value = Bytes;
 pub type Key = Bytes;

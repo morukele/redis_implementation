@@ -2,6 +2,7 @@ use bytes::{BufMut, BytesMut};
 // Uncomment this block to pass the first stage
 use redis_starter_rust::{RedisParser, RedisValueRef, ThreadPool};
 use std::{
+    collections::HashMap,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     str,
@@ -61,6 +62,7 @@ fn handle_client(mut stream: TcpStream) {
 }
 
 fn process_command(commands: &RedisValueRef, stream: &mut TcpStream) {
+    let store = HashMap::new();
     match commands {
         RedisValueRef::Array(arr) => {
             let start_cmd = &arr[0];
@@ -72,11 +74,58 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream) {
                         .as_str()
                     {
                         "ping" => handle_ping(stream),
-                        "echo" => handle_echo(stream, arr),
+                        "echo" => handle_echo(stream, &arr[1..]),
+                        "get" => handle_get(stream, &arr[1..], store),
+                        "set" => handle_set(stream, &arr[1..], store),
                         _ => println!("Unknown command"),
                     }
                 }
                 _ => todo!(),
+            }
+        }
+        _ => todo!(),
+    }
+}
+
+fn handle_set(
+    stream: &mut TcpStream,
+    commands: &[RedisValueRef],
+    mut store: HashMap<String, String>,
+) {
+    if commands.is_empty() || commands.len() < 2 {
+        println!("ERR: wrong number of arguments for set");
+    }
+
+    match (&commands[0], &commands[1]) {
+        (RedisValueRef::String(k), RedisValueRef::String(v)) => {
+            let key = str::from_utf8(k).expect("failed to decode buffer");
+            let value = str::from_utf8(v).expect("failed to decode buffer");
+            store.insert(key.to_string(), value.to_string());
+
+            // Write the response
+            let response = b"+OK\r\n";
+            write_response(response, stream);
+        }
+        (_, _) => todo!(),
+    }
+}
+
+fn handle_get(stream: &mut TcpStream, commands: &[RedisValueRef], store: HashMap<String, String>) {
+    if commands.is_empty() || commands.len() > 1 {
+        println!("ERR: wrong number of arguments for get");
+    }
+    match &commands[0] {
+        RedisValueRef::String(k) => {
+            let key = str::from_utf8(k).expect("failed to decode buffer");
+            match store.get(key) {
+                Some(value) => {
+                    let response = format!("${}\r\n{}\r\n", value.len(), value);
+                    write_response(response.as_bytes(), stream)
+                }
+                None => {
+                    let response = b"$-1\r\n";
+                    write_response(response, stream);
+                }
             }
         }
         _ => todo!(),
@@ -94,10 +143,8 @@ fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
         match &commands[1] {
             RedisValueRef::String(s) => {
                 let data = str::from_utf8(s).expect("failed to decode buffer");
-                write_response(
-                    format!("${}\r\n{}\r\n", data.len(), data).as_bytes(),
-                    stream,
-                );
+                let response = format!("${}\r\n{}\r\n", data.len(), data);
+                write_response(response.as_bytes(), stream);
             }
             _ => todo!(),
         }
