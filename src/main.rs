@@ -1,8 +1,11 @@
 use bytes::{BufMut, BytesMut};
 use clap::Parser;
-use redis_starter_rust::{Database, RedisParser, RedisValueRef, ThreadPool};
+use redis_starter_rust::{
+    return_bulk_string, return_null, return_ok, write_response, Database, RedisParser,
+    RedisValueRef, ThreadPool,
+};
 use std::{
-    io::{Read, Write},
+    io::Read,
     net::{TcpListener, TcpStream},
     str,
     sync::{Arc, Mutex},
@@ -90,6 +93,7 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
                         "echo" => handle_echo(stream, &arr[1..]),
                         "get" => handle_get(stream, &arr[1..], store),
                         "set" => handle_set(stream, &arr[1..], store),
+                        "info" => handle_info(stream, &arr[1..]),
                         _ => println!("Unknown command"),
                     }
                 }
@@ -98,6 +102,12 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
         }
         _ => todo!(),
     }
+}
+
+fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef]) {
+    dbg!(commands);
+    let value = String::from("role:master");
+    return_bulk_string(value, stream);
 }
 
 fn handle_set(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
@@ -158,16 +168,10 @@ fn handle_get(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mut
                         if Instant::now() > duration {
                             return_null(stream)
                         } else {
-                            let response =
-                                format!("${}\r\n{}\r\n", set_object.value.len(), set_object.value);
-                            write_response(response.as_bytes(), stream);
+                            return_bulk_string(set_object.value, stream);
                         }
                     }
-                    None => {
-                        let response =
-                            format!("${}\r\n{}\r\n", set_object.value.len(), set_object.value);
-                        write_response(response.as_bytes(), stream)
-                    }
+                    None => return_bulk_string(set_object.value, stream),
                 },
                 None => {
                     return_null(stream);
@@ -189,27 +193,9 @@ fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
         match &commands[0] {
             RedisValueRef::String(s) => {
                 let data = str::from_utf8(s).expect("failed to decode buffer");
-                let response = format!("${}\r\n{}\r\n", data.len(), data);
-                write_response(response.as_bytes(), stream);
+                return_bulk_string(data.to_string(), stream)
             }
             _ => todo!(),
         }
     }
-}
-
-fn write_response(response: &[u8], mut stream: &TcpStream) {
-    stream
-        .write_all(response)
-        .expect("failed to write to stream");
-}
-
-fn return_null(stream: &mut TcpStream) {
-    let response = b"$-1\r\n";
-    dbg!(&response);
-    write_response(response, stream);
-}
-
-fn return_ok(stream: &mut TcpStream) {
-    let response = b"+OK\r\n";
-    write_response(response, stream);
 }
