@@ -1,3 +1,4 @@
+use crate::config::Mode;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -6,13 +7,19 @@ use std::{
 #[derive(Clone, Debug, Default)]
 pub struct Database {
     pub store: HashMap<String, SetObject>,
+    pub mode: Mode,
 }
 
 impl Database {
     pub fn new() -> Database {
         Database {
             store: HashMap::new(),
+            mode: Mode::Master,
         }
+    }
+
+    pub fn toggle_slave_mode(&mut self, info: Vec<String>) {
+        self.mode = Mode::Slave(info)
     }
 
     pub fn set(&mut self, key: &str, value: &str, ttl: Option<Duration>) -> Option<SetObject> {

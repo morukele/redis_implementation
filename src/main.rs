@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 use clap::Parser;
 use redis_starter_rust::{
-    return_bulk_string, return_null, return_ok, write_response, Database, RedisParser,
+    return_bulk_string, return_null, return_ok, write_response, Database, Mode, RedisParser,
     RedisValueRef, ThreadPool,
 };
 use std::{
@@ -20,11 +20,6 @@ struct Config {
     replicaof: Option<Vec<String>>,
 }
 
-enum Mode {
-    Master,
-    Slave(Vec<String>),
-}
-
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
@@ -32,20 +27,19 @@ fn main() {
     // Getting the args
     let config = Config::parse();
 
-    // Determining server mode
-    let mode = match config.replicaof {
-        Some(value) => Mode::Slave(value),
-        None => Mode::Master,
-    };
-    let mode = Arc::new(Mutex::new(mode));
-
     let listener = TcpListener::bind(format!("127.0.0.1:{}", &config.port)).unwrap();
 
     // Creating a new thread pool
     let pool = ThreadPool::new(4);
 
     // Creating data store
-    let database = Database::new();
+    let mut database = Database::new();
+
+    // Determining and set server mode
+    if let Some(info) = config.replicaof {
+        database.toggle_slave_mode(info);
+    };
+
     let database = Arc::new(Mutex::new(database));
 
     for stream in listener.incoming() {
@@ -53,10 +47,9 @@ fn main() {
             Ok(stream) => {
                 println!("accepted new connection");
                 let store = Arc::clone(&database);
-                let mode = Arc::clone(&mode);
                 // Using threads to allow for multiple client support
                 pool.execute(|| {
-                    handle_client(stream, store, mode);
+                    handle_client(stream, store);
                 });
             }
             Err(e) => {
@@ -66,11 +59,10 @@ fn main() {
     }
 }
 
-fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>, mode: Arc<Mutex<Mode>>) {
+fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
     let mut buffer = [0; 1024];
     loop {
         let db = Arc::clone(&store);
-        let mode = Arc::clone(&mode);
         let bytes_read = stream
             .read(&mut buffer)
             .expect("Failed to read input command");
@@ -90,16 +82,11 @@ fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>, mode: Arc<M
 
         println!("output: {:?}", &output);
         // Process Commands
-        process_command(&output, &mut stream, db, mode);
+        process_command(&output, &mut stream, db);
     }
 }
 
-fn process_command(
-    commands: &RedisValueRef,
-    stream: &mut TcpStream,
-    store: Arc<Mutex<Database>>,
-    mode: Arc<Mutex<Mode>>,
-) {
+fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<Mutex<Database>>) {
     match commands {
         RedisValueRef::Array(arr) => {
             let start_cmd = &arr[0];
@@ -114,7 +101,7 @@ fn process_command(
                         "echo" => handle_echo(stream, &arr[1..]),
                         "get" => handle_get(stream, &arr[1..], store),
                         "set" => handle_set(stream, &arr[1..], store),
-                        "info" => handle_info(stream, &arr[1..], mode),
+                        "info" => handle_info(stream, &arr[1..], store),
                         _ => println!("Unknown command"),
                     }
                 }
@@ -125,9 +112,9 @@ fn process_command(
     }
 }
 
-fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], mode: Arc<Mutex<Mode>>) {
-    let mode = mode.lock().unwrap();
-    match &*mode {
+fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], database: Arc<Mutex<Database>>) {
+    let database = database.lock().unwrap();
+    match &database.mode {
         Mode::Master => {
             let value = String::from("role:master");
             return_bulk_string(value, stream);
