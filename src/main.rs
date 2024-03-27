@@ -16,6 +16,13 @@ use std::{
 struct Config {
     #[arg(short, long, default_value_t = 6379)]
     port: usize,
+    #[arg(short, long, number_of_values = 2, require_equals = false)]
+    replicaof: Option<Vec<String>>,
+}
+
+enum Mode {
+    Master,
+    Slave(Vec<String>),
 }
 
 fn main() {
@@ -23,9 +30,16 @@ fn main() {
     println!("Logs from your program will appear here!");
 
     // Getting the args
-    let args = Config::parse();
+    let config = Config::parse();
 
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", args.port)).unwrap();
+    // Determining server mode
+    let mode = match config.replicaof {
+        Some(value) => Mode::Slave(value),
+        None => Mode::Master,
+    };
+    let mode = Arc::new(Mutex::new(mode));
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", &config.port)).unwrap();
 
     // Creating a new thread pool
     let pool = ThreadPool::new(4);
@@ -39,9 +53,10 @@ fn main() {
             Ok(stream) => {
                 println!("accepted new connection");
                 let store = Arc::clone(&database);
+                let mode = Arc::clone(&mode);
                 // Using threads to allow for multiple client support
                 pool.execute(|| {
-                    handle_client(stream, store);
+                    handle_client(stream, store, mode);
                 });
             }
             Err(e) => {
@@ -51,10 +66,11 @@ fn main() {
     }
 }
 
-fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
+fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>, mode: Arc<Mutex<Mode>>) {
     let mut buffer = [0; 1024];
     loop {
         let db = Arc::clone(&store);
+        let mode = Arc::clone(&mode);
         let bytes_read = stream
             .read(&mut buffer)
             .expect("Failed to read input command");
@@ -74,11 +90,16 @@ fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
 
         println!("output: {:?}", &output);
         // Process Commands
-        process_command(&output, &mut stream, db);
+        process_command(&output, &mut stream, db, mode);
     }
 }
 
-fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<Mutex<Database>>) {
+fn process_command(
+    commands: &RedisValueRef,
+    stream: &mut TcpStream,
+    store: Arc<Mutex<Database>>,
+    mode: Arc<Mutex<Mode>>,
+) {
     match commands {
         RedisValueRef::Array(arr) => {
             let start_cmd = &arr[0];
@@ -93,7 +114,7 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
                         "echo" => handle_echo(stream, &arr[1..]),
                         "get" => handle_get(stream, &arr[1..], store),
                         "set" => handle_set(stream, &arr[1..], store),
-                        "info" => handle_info(stream, &arr[1..]),
+                        "info" => handle_info(stream, &arr[1..], mode),
                         _ => println!("Unknown command"),
                     }
                 }
@@ -104,10 +125,19 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
     }
 }
 
-fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef]) {
-    dbg!(commands);
-    let value = String::from("role:master");
-    return_bulk_string(value, stream);
+fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], mode: Arc<Mutex<Mode>>) {
+    let mode = mode.lock().unwrap();
+    match &*mode {
+        Mode::Master => {
+            let value = String::from("role:master");
+            return_bulk_string(value, stream);
+        }
+        Mode::Slave(info) => {
+            dbg!(info);
+            let value = String::from("role:slave");
+            return_bulk_string(value, stream);
+        }
+    }
 }
 
 fn handle_set(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
