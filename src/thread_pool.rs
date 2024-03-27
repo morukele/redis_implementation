@@ -3,13 +3,13 @@ use std::thread;
 
 // Creating a struct to handle all multi threaded related operations
 pub struct ThreadPool {
-    workers: Vec<Worker>,
+    pub workers: Vec<Worker>,
     sender: mpsc::Sender<Job>,
 }
 
-struct Worker {
-    id: usize,
-    thread: thread::JoinHandle<()>,
+pub struct Worker {
+    pub id: usize,
+    pub thread: thread::JoinHandle<()>,
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
