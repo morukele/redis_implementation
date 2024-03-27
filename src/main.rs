@@ -1,12 +1,12 @@
 use bytes::{BufMut, BytesMut};
 // Uncomment this block to pass the first stage
-use redis_starter_rust::{RedisParser, RedisValueRef, ThreadPool};
+use redis_starter_rust::{Database, RedisParser, RedisValueRef, ThreadPool};
 use std::{
-    collections::HashMap,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     str,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 fn main() {
@@ -21,13 +21,14 @@ fn main() {
     let pool = ThreadPool::new(4);
 
     // Creating data store
-    let store = Arc::new(Mutex::new(HashMap::new()));
+    let database = Database::new();
+    let database = Arc::new(Mutex::new(database));
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                let store = Arc::clone(&store);
+                let store = Arc::clone(&database);
                 // Using threads to allow for multiple client support
                 pool.execute(|| {
                     handle_client(stream, store);
@@ -40,7 +41,7 @@ fn main() {
     }
 }
 
-fn handle_client(mut stream: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
+fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
     let mut buffer = [0; 1024];
     loop {
         let db = Arc::clone(&store);
@@ -67,11 +68,7 @@ fn handle_client(mut stream: TcpStream, store: Arc<Mutex<HashMap<String, String>
     }
 }
 
-fn process_command(
-    commands: &RedisValueRef,
-    stream: &mut TcpStream,
-    store: Arc<Mutex<HashMap<String, String>>>,
-) {
+fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<Mutex<Database>>) {
     match commands {
         RedisValueRef::Array(arr) => {
             let start_cmd = &arr[0];
@@ -96,55 +93,77 @@ fn process_command(
     }
 }
 
-fn handle_set(
-    stream: &mut TcpStream,
-    commands: &[RedisValueRef],
-    store: Arc<Mutex<HashMap<String, String>>>,
-) {
-    if commands.is_empty() || commands.len() < 2 {
-        println!("ERR: wrong number of arguments for set");
+fn handle_set(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+    if commands.len() == 2 {
+        // set without ttl
+        match (&commands[0], &commands[1]) {
+            (RedisValueRef::String(k), RedisValueRef::String(v)) => {
+                let key = str::from_utf8(k).expect("failed to decode buffer");
+                let value = str::from_utf8(v).expect("failed to decode buffer");
+                let _result = store.lock().unwrap().set(key, value, None);
+
+                // Write the response
+                return_ok(stream);
+            }
+            (_, _) => todo!(),
+        }
     }
 
-    match (&commands[0], &commands[1]) {
-        (RedisValueRef::String(k), RedisValueRef::String(v)) => {
-            let key = str::from_utf8(k).expect("failed to decode buffer");
-            let value = str::from_utf8(v).expect("failed to decode buffer");
-            store
-                .lock()
-                .unwrap()
-                .insert(key.to_string(), value.to_string());
-
-            // Write the response
-            let response = b"+OK\r\n";
-            write_response(response, stream);
+    if commands.len() == 4 {
+        dbg!(commands);
+        match (&commands[0], &commands[1], &commands[2], &commands[3]) {
+            (
+                RedisValueRef::String(k),
+                RedisValueRef::String(v),
+                RedisValueRef::String(opt),
+                RedisValueRef::String(ttl),
+            ) => {
+                let key = str::from_utf8(k).expect("failed to decode buffer");
+                let value = str::from_utf8(v).expect("failed to decode buffer");
+                let opt = str::from_utf8(opt).expect("failed to decode buffer");
+                let ttl = str::from_utf8(ttl)
+                    .unwrap()
+                    .parse::<u64>()
+                    .expect("failed to decode TTL");
+                let ttl = Duration::from_millis(ttl);
+                if opt.to_lowercase() == "px" {
+                    let _result = store.lock().unwrap().set(key, value, Some(ttl));
+                    // Write the response
+                    return_ok(stream);
+                }
+            }
+            (_, _, _, _) => todo!(),
         }
-        (_, _) => todo!(),
     }
 }
 
-fn handle_get(
-    stream: &mut TcpStream,
-    commands: &[RedisValueRef],
-    store: Arc<Mutex<HashMap<String, String>>>,
-) {
-    if commands.is_empty() || commands.len() > 1 {
-        println!("ERR: wrong number of arguments for get");
-    }
-    dbg!(&store);
+fn handle_get(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+    dbg!(&store.lock().unwrap().store);
     match &commands[0] {
         RedisValueRef::String(k) => {
             let key = str::from_utf8(k).expect("failed to decode buffer");
-            dbg!(key);
-            match store.lock().unwrap().get(key) {
-                Some(value) => {
-                    let response = format!("${}\r\n{}\r\n", value.len(), value);
-                    dbg!(&response);
-                    write_response(response.as_bytes(), stream)
-                }
+            let result = store.lock().unwrap().get(key);
+            match result {
+                Some(set_object) => match set_object.duration {
+                    Some(duration) => {
+                        // Compute the duration of set object
+                        // If not expired, return value else return NIL
+                        if Instant::now() > duration {
+                            return_null(stream)
+                        } else {
+                            let response =
+                                format!("${}\r\n{}\r\n", set_object.value.len(), set_object.value);
+                            write_response(response.as_bytes(), stream);
+                        }
+                    }
+                    None => {
+                        let response =
+                            format!("${}\r\n{}\r\n", set_object.value.len(), set_object.value);
+                        write_response(response.as_bytes(), stream)
+                    }
+                },
                 None => {
-                    let response = b"$-1\r\n";
-                    dbg!(&response);
-                    write_response(response, stream);
+                    return_null(stream);
                 }
             }
         }
@@ -175,4 +194,15 @@ fn write_response(response: &[u8], mut stream: &TcpStream) {
     stream
         .write_all(response)
         .expect("failed to write to stream");
+}
+
+fn return_null(stream: &mut TcpStream) {
+    let response = b"$-1\r\n";
+    dbg!(&response);
+    write_response(response, stream);
+}
+
+fn return_ok(stream: &mut TcpStream) {
+    let response = b"+OK\r\n";
+    write_response(response, stream);
 }
