@@ -1,5 +1,5 @@
 use bytes::{BufMut, BytesMut};
-// Uncomment this block to pass the first stage
+use clap::Parser;
 use redis_starter_rust::{Database, RedisParser, RedisValueRef, ThreadPool};
 use std::{
     io::{Read, Write},
@@ -9,13 +9,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[derive(Parser, Debug)]
+struct Config {
+    #[arg(short, long, default_value_t = 6379)]
+    port: usize,
+}
+
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
-    // Uncomment this block to pass the first stage
+    // Getting the args
+    let args = Config::parse();
 
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", args.port)).unwrap();
 
     // Creating a new thread pool
     let pool = ThreadPool::new(4);
