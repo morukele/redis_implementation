@@ -112,12 +112,18 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
     }
 }
 
-fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], database: Arc<Mutex<Database>>) {
-    let database = database.lock().unwrap();
+fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+    let database = store.lock().unwrap();
+    let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
+    let master_repl_offset = 0;
     match &database.mode {
         Mode::Master => {
-            let value = String::from("role:master");
-            return_bulk_string(value, stream);
+            let response = format!(
+                "role:master\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
+                master_replid, master_repl_offset
+            );
+
+            return_bulk_string(response, stream);
         }
         Mode::Slave(info) => {
             dbg!(info);
