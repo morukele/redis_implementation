@@ -2,12 +2,15 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
 };
-use tokio::time::Duration;
 
 pub async fn run_replica(host: &String, port: &String) {
     let mut stream = TcpStream::connect(format!("{}:{}", &host, &port)).unwrap();
-    let mut buffer = [0; 1024];
+    let buffer = [0; 1024];
 
+    handle_handshake(&mut stream, buffer).await;
+}
+
+async fn handle_handshake(stream: &mut TcpStream, mut buffer: [u8; 1024]) {
     // Send ping response
     let ping_response = "*1\r\n$4\r\nping\r\n".as_bytes();
     stream
@@ -29,6 +32,14 @@ pub async fn run_replica(host: &String, port: &String) {
     stream
         .write_all(repl_conf_2)
         .expect("failed to write second REPLCONF response");
+    stream.flush().unwrap();
+    let _res = stream.read(&mut buffer).unwrap();
+
+    // Send PSYNC command
+    let psync = "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n".as_bytes();
+    stream
+        .write_all(psync)
+        .expect("failed to send psync response");
     stream.flush().unwrap();
     let _res = stream.read(&mut buffer).unwrap();
 }

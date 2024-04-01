@@ -4,6 +4,7 @@
         "memchr",
         "ncapa",
         "npsync",
+        "PSYNC",
         "REPLCONF",
         "replicaof",
         "replid"
