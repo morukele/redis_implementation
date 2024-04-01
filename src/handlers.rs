@@ -9,8 +9,8 @@ use std::{
 use bytes::{BufMut, BytesMut};
 
 use crate::{
-    return_bulk_string, return_null, return_ok, write_response, Database, Mode, RedisParser,
-    RedisValueRef, Server,
+    encode_simple_string, return_bulk_string, return_null, return_ok, write_response, Database,
+    Mode, RedisParser, RedisValueRef, Server,
 };
 
 pub async fn handle_client(
@@ -67,6 +67,7 @@ async fn process_command(
                         "set" => handle_set(stream, &arr[1..], store).await,
                         "info" => handle_info(stream, &arr[1..], server_info).await,
                         "replconf" => handle_replconf(stream, &arr[1..]),
+                        "psync" => handle_psync(stream, &arr[1..], server_info),
                         _ => println!("Unknown command"),
                     }
                 }
@@ -75,6 +76,19 @@ async fn process_command(
         }
         _ => todo!(),
     }
+}
+
+fn handle_psync(
+    stream: &mut TcpStream,
+    _commands: &[RedisValueRef],
+    server_info: Arc<Mutex<Server>>,
+) {
+    let repl_id = server_info.lock().unwrap().clone().master_replid.unwrap();
+    let offset = server_info.lock().unwrap().clone().master_repl_offset;
+
+    let response = format!("FULLRESYNC {} {}", repl_id, offset);
+    let response = encode_simple_string(&response);
+    return_bulk_string(response, stream)
 }
 
 fn handle_replconf(stream: &mut TcpStream, _commands: &[RedisValueRef]) {

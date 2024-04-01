@@ -229,3 +229,7 @@ pub fn encode_bulk_string(input: &str) -> String {
 
     result
 }
+
+pub fn encode_simple_string(input: &str) -> String {
+    format!("+{}\r\n", input)
+}
