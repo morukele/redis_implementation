@@ -108,7 +108,6 @@ async fn handle_info(
                 "role:{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
                 mode, master_replid, master_repl_offset
             );
-
             return_bulk_string(response, stream);
         }
         Mode::Slave => {

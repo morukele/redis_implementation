@@ -211,3 +211,21 @@ impl RedisBufSplit {
         }
     }
 }
+
+pub fn encode_bulk_string_from_array(input: Vec<&str>) -> String {
+    let mut res = String::new();
+    // Add details about the string
+    res.push_str(format!("*{}\r\n", input.len()).as_str());
+
+    for s in input {
+        let encoded = encode_bulk_string(s);
+        res.push_str(encoded.as_str());
+    }
+    res
+}
+
+pub fn encode_bulk_string(input: &str) -> String {
+    let result = format!("${}\r\n{}\r\n", input.len(), input);
+
+    result
+}
