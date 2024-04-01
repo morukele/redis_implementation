@@ -20,7 +20,8 @@ struct Config {
     replicaof: Option<Vec<String>>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
@@ -28,9 +29,6 @@ fn main() {
     let config = Config::parse();
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", &config.port)).unwrap();
-
-    // Creating a new thread pool
-    let pool = ThreadPool::new(4);
 
     // Creating data store
     let mut database = Database::new();
@@ -48,9 +46,7 @@ fn main() {
                 println!("accepted new connection");
                 let store = Arc::clone(&database);
                 // Using threads to allow for multiple client support
-                pool.execute(|| {
-                    handle_client(stream, store);
-                });
+                tokio::spawn(async move { handle_client(stream, store).await });
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -59,7 +55,7 @@ fn main() {
     }
 }
 
-fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
+async fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
     let mut buffer = [0; 1024];
     loop {
         let db = Arc::clone(&store);
@@ -82,11 +78,15 @@ fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
 
         println!("output: {:?}", &output);
         // Process Commands
-        process_command(&output, &mut stream, db);
+        process_command(&output, &mut stream, db).await;
     }
 }
 
-fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<Mutex<Database>>) {
+async fn process_command(
+    commands: &RedisValueRef,
+    stream: &mut TcpStream,
+    store: Arc<Mutex<Database>>,
+) {
     match commands {
         RedisValueRef::Array(arr) => {
             let start_cmd = &arr[0];
@@ -97,11 +97,11 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
                         .to_lowercase()
                         .as_str()
                     {
-                        "ping" => handle_ping(stream),
-                        "echo" => handle_echo(stream, &arr[1..]),
-                        "get" => handle_get(stream, &arr[1..], store),
-                        "set" => handle_set(stream, &arr[1..], store),
-                        "info" => handle_info(stream, &arr[1..], store),
+                        "ping" => handle_ping(stream).await,
+                        "echo" => handle_echo(stream, &arr[1..]).await,
+                        "get" => handle_get(stream, &arr[1..], store).await,
+                        "set" => handle_set(stream, &arr[1..], store).await,
+                        "info" => handle_info(stream, &arr[1..], store).await,
                         _ => println!("Unknown command"),
                     }
                 }
@@ -112,7 +112,11 @@ fn process_command(commands: &RedisValueRef, stream: &mut TcpStream, store: Arc<
     }
 }
 
-fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+async fn handle_info(
+    stream: &mut TcpStream,
+    commands: &[RedisValueRef],
+    store: Arc<Mutex<Database>>,
+) {
     let database = store.lock().unwrap();
     let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
     let master_repl_offset = 0;
@@ -133,7 +137,11 @@ fn handle_info(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mu
     }
 }
 
-fn handle_set(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+async fn handle_set(
+    stream: &mut TcpStream,
+    commands: &[RedisValueRef],
+    store: Arc<Mutex<Database>>,
+) {
     if commands.len() == 2 {
         // set without ttl
         match (&commands[0], &commands[1]) {
@@ -177,7 +185,11 @@ fn handle_set(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mut
     }
 }
 
-fn handle_get(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mutex<Database>>) {
+async fn handle_get(
+    stream: &mut TcpStream,
+    commands: &[RedisValueRef],
+    store: Arc<Mutex<Database>>,
+) {
     dbg!(&store.lock().unwrap().store);
     match &commands[0] {
         RedisValueRef::String(k) => {
@@ -205,11 +217,11 @@ fn handle_get(stream: &mut TcpStream, commands: &[RedisValueRef], store: Arc<Mut
     }
 }
 
-fn handle_ping(stream: &mut TcpStream) {
+async fn handle_ping(stream: &mut TcpStream) {
     write_response(b"+PONG\r\n", stream)
 }
 
-fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
+async fn handle_echo(stream: &mut TcpStream, commands: &[RedisValueRef]) {
     if commands.is_empty() || commands.len() > 1 {
         println!("ERR: wrong number of arguments for echo")
     } else {
