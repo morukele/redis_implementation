@@ -8,7 +8,6 @@ pub fn write_response(response: &[u8], mut stream: &TcpStream) {
 
 pub fn return_null(stream: &mut TcpStream) {
     let response = b"$-1\r\n";
-    dbg!(&response);
     write_response(response, stream);
 }
 

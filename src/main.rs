@@ -17,16 +17,13 @@ async fn main() {
     // Determining and set server mode
     let host = "127.0.0.1".to_string();
     let server_info = match config.replicaof {
-        Some(replicaof) => {
-            dbg!(&replicaof);
-            Server::new(
-                host,
-                config.port.to_string(),
-                Mode::Slave,
-                0,
-                Some(replicaof),
-            )
-        }
+        Some(replicaof) => Server::new(
+            host,
+            config.port.to_string(),
+            Mode::Slave,
+            0,
+            Some(replicaof),
+        ),
         None => Server::new(host, config.port.to_string(), Mode::Master, 0, None),
     };
 

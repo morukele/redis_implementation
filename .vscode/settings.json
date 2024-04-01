@@ -2,6 +2,9 @@
     "cSpell.words": [
         "codecrafters",
         "memchr",
+        "ncapa",
+        "npsync",
+        "REPLCONF",
         "replicaof",
         "replid"
     ]

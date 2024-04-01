@@ -66,6 +66,7 @@ async fn process_command(
                         "get" => handle_get(stream, &arr[1..], store).await,
                         "set" => handle_set(stream, &arr[1..], store).await,
                         "info" => handle_info(stream, &arr[1..], server_info).await,
+                        "replconf" => handle_replconf(stream, &arr[1..]),
                         _ => println!("Unknown command"),
                     }
                 }
@@ -74,6 +75,10 @@ async fn process_command(
         }
         _ => todo!(),
     }
+}
+
+fn handle_replconf(stream: &mut TcpStream, _commands: &[RedisValueRef]) {
+    return_ok(stream)
 }
 
 async fn handle_info(
@@ -134,7 +139,6 @@ async fn handle_set(
     }
 
     if commands.len() == 4 {
-        dbg!(commands);
         match (&commands[0], &commands[1], &commands[2], &commands[3]) {
             (
                 RedisValueRef::String(k),
@@ -166,7 +170,6 @@ async fn handle_get(
     commands: &[RedisValueRef],
     store: Arc<Mutex<Database>>,
 ) {
-    dbg!(&store.lock().unwrap().store);
     match &commands[0] {
         RedisValueRef::String(k) => {
             let key = str::from_utf8(k).expect("failed to decode buffer");
