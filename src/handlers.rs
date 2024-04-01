@@ -10,13 +10,18 @@ use bytes::{BufMut, BytesMut};
 
 use crate::{
     return_bulk_string, return_null, return_ok, write_response, Database, Mode, RedisParser,
-    RedisValueRef,
+    RedisValueRef, Server,
 };
 
-pub async fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
+pub async fn handle_client(
+    mut stream: TcpStream,
+    store: Arc<Mutex<Database>>,
+    server_info: Arc<Mutex<Server>>,
+) {
     let mut buffer = [0; 1024];
     loop {
         let db = Arc::clone(&store);
+        let server_info = Arc::clone(&server_info);
         let bytes_read = stream
             .read(&mut buffer)
             .expect("Failed to read input command");
@@ -36,7 +41,7 @@ pub async fn handle_client(mut stream: TcpStream, store: Arc<Mutex<Database>>) {
 
         println!("output: {:?}", &output);
         // Process Commands
-        process_command(&output, &mut stream, db).await;
+        process_command(&output, &mut stream, db, server_info).await;
     }
 }
 
@@ -44,6 +49,7 @@ async fn process_command(
     commands: &RedisValueRef,
     stream: &mut TcpStream,
     store: Arc<Mutex<Database>>,
+    server_info: Arc<Mutex<Server>>,
 ) {
     match commands {
         RedisValueRef::Array(arr) => {
@@ -59,7 +65,7 @@ async fn process_command(
                         "echo" => handle_echo(stream, &arr[1..]).await,
                         "get" => handle_get(stream, &arr[1..], store).await,
                         "set" => handle_set(stream, &arr[1..], store).await,
-                        "info" => handle_info(stream, &arr[1..], store).await,
+                        "info" => handle_info(stream, &arr[1..], server_info).await,
                         _ => println!("Unknown command"),
                     }
                 }
@@ -72,14 +78,22 @@ async fn process_command(
 
 async fn handle_info(
     stream: &mut TcpStream,
-    commands: &[RedisValueRef],
-    store: Arc<Mutex<Database>>,
+    _commands: &[RedisValueRef],
+    server_info: Arc<Mutex<Server>>,
 ) {
-    let database = store.lock().unwrap();
-    let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
-    let master_repl_offset = 0;
-    match &database.mode {
+    match &server_info.lock().unwrap().mode {
         Mode::Master => {
+            let master_replid = server_info
+                .lock()
+                .expect("unable to get lock for server info")
+                .master_replid
+                .clone()
+                .expect("unable to get master_replid");
+            let master_repl_offset = server_info
+                .lock()
+                .expect("unable to get lock for server info")
+                .master_repl_offset;
+
             let response = format!(
                 "role:master\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
                 master_replid, master_repl_offset
