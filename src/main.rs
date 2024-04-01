@@ -1,9 +1,5 @@
 use clap::Parser;
-use redis_starter_rust::{handle_client, Database, Mode, Server};
-use std::{
-    net::TcpListener,
-    sync::{Arc, Mutex},
-};
+use redis_starter_rust::{run_master, run_replica, Mode, Server};
 
 #[derive(Parser, Debug, Clone)]
 struct Config {
@@ -20,35 +16,32 @@ async fn main() {
 
     // Determining and set server mode
     let host = "127.0.0.1".to_string();
-    let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
     let server_info = match config.replicaof {
-        Some(info) => {
-            dbg!(info);
-            todo!()
+        Some(replicaof) => {
+            dbg!(&replicaof);
+            Server::new(
+                host,
+                config.port.to_string(),
+                Mode::Slave,
+                0,
+                Some(replicaof),
+            )
         }
-        None => Server::new(host, config.port, Mode::Master, Some(master_replid), 0),
+        None => Server::new(host, config.port.to_string(), Mode::Master, 0, None),
     };
 
-    //Setting up server
-    let listener =
-        TcpListener::bind(format!("{}:{}", &server_info.host, &server_info.port)).unwrap();
-
-    // Preparing for multithreading
-    let database = Arc::new(Mutex::new(Database::new()));
-    let server_info = Arc::new(Mutex::new(server_info));
-
-    // Processing the stream
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("accepted new connection");
-                let store = Arc::clone(&database);
-                let server_info = Arc::clone(&server_info);
-                tokio::spawn(async move { handle_client(stream, store, server_info).await });
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
+    match server_info.mode {
+        Mode::Master => {
+            // Setting up master server
+            run_master(server_info.clone()).await
         }
+        Mode::Slave => match server_info.clone().replicaof {
+            Some(info) => {
+                // Setting up replica server
+                run_replica(&info[0], &info[1]).await;
+                run_master(server_info.clone()).await;
+            }
+            None => run_master(server_info.clone()).await,
+        },
     }
 }

@@ -81,29 +81,33 @@ async fn handle_info(
     _commands: &[RedisValueRef],
     server_info: Arc<Mutex<Server>>,
 ) {
-    match &server_info.lock().unwrap().mode {
-        Mode::Master => {
-            let master_replid = server_info
-                .lock()
-                .expect("unable to get lock for server info")
-                .master_replid
-                .clone()
-                .expect("unable to get master_replid");
-            let master_repl_offset = server_info
-                .lock()
-                .expect("unable to get lock for server info")
-                .master_repl_offset;
+    // Extract master replid
+    let master_replid = server_info
+        .lock()
+        .expect("unable to get lock for server info")
+        .master_replid
+        .clone()
+        .expect("unable to get master_replid");
 
+    // Extract master repl offset
+    let master_repl_offset = server_info
+        .lock()
+        .expect("unable to get lock for server info")
+        .master_repl_offset;
+
+    let mode = server_info.lock().unwrap().mode.clone();
+
+    match mode {
+        Mode::Master => {
             let response = format!(
-                "role:master\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
-                master_replid, master_repl_offset
+                "role:{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
+                mode, master_replid, master_repl_offset
             );
 
             return_bulk_string(response, stream);
         }
-        Mode::Slave(info) => {
-            dbg!(info);
-            let value = String::from("role:slave");
+        Mode::Slave => {
+            let value = format!("role:{}", mode);
             return_bulk_string(value, stream);
         }
     }
