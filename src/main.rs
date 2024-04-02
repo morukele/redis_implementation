@@ -34,11 +34,16 @@ async fn main() {
         }
         Mode::Slave => match server_info.clone().replicaof {
             Some(info) => {
-                // Setting up replica server
+                // Setting up replica server and master server
                 run_replica(&info[0], &info[1]).await;
                 run_master(server_info.clone()).await;
             }
-            None => run_master(server_info.clone()).await,
+            None => {
+                // Mode is slave but no replication info is provided
+                // So it will run as if it is master
+                // A better implementation will be to raise an error
+                run_master(server_info.clone()).await
+            }
         },
     }
 }

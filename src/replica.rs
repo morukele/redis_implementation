@@ -9,6 +9,7 @@ pub async fn run_replica(host: &String, port: &String) {
     let mut stream = TcpStream::connect(format!("{}:{}", &host, &port)).unwrap();
     let buffer = [0; 1024];
 
+    // Connect replica to the master server
     handle_handshake(&mut stream, buffer).await;
 }
 

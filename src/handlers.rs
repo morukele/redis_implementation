@@ -1,3 +1,5 @@
+use base64;
+use bytes::{BufMut, BytesMut};
 use std::{
     io::Read,
     net::TcpStream,
@@ -5,8 +7,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-use bytes::{BufMut, BytesMut};
 
 use crate::{
     encode_simple_string, return_bulk_string, return_null, return_ok, write_response, Database,
@@ -88,7 +88,14 @@ fn handle_psync(
 
     let response = format!("FULLRESYNC {} {}", repl_id, offset);
     let response = encode_simple_string(&response);
-    return_bulk_string(response, stream)
+    return_bulk_string(response, stream);
+
+    // Decode and Sending RDB file
+    let base64_rdb = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
+    let rdb = base64::decode(base64_rdb).unwrap();
+    let msg = format!("${}\r\n", rdb.len());
+    write_response(msg.as_bytes(), stream);
+    write_response(&rdb, stream);
 }
 
 fn handle_replconf(stream: &mut TcpStream, _commands: &[RedisValueRef]) {

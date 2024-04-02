@@ -9,6 +9,8 @@
         "PSYNC",
         "REPLCONF",
         "replicaof",
-        "replid"
+        "replid",
+        "Rpcy",
+        "VESV"
     ]
 }
